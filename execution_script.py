@@ -1,8 +1,9 @@
 from extract_script import extracting_csv,structure_json
+from Transformation_script import data_quality_check,data_transformation
 from pathlib import Path 
 
 def main():
-    filepaths = ["C://Users//HP//Documents//winners_f1_1950_2025_v2.csv"]
+    filepaths = [Path("Data Folder") / "Inventory Management E-Grocery - InventoryData.csv"]
 
     for filepath in filepaths:
         ext = Path(filepath).suffix.lower()
@@ -16,6 +17,9 @@ def main():
         
         print(f"processed:{filepath}")
         print(df.head(),"\n")
+
+        data_quality_checking = data_quality_check(df)
+        Transformation =data_transformation(df)
 
 if __name__  == "__main__":
     main()
