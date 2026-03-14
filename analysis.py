@@ -1,9 +1,50 @@
 from loguru import logger
+from dotenv import load_dotenv
+import psycopg2
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import os
+
+load_dotenv()
 
 logger.info("Starting analysis...")
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def load_data_from_db():
+    """Load customers and orders tables from PostgreSQL"""
+
+    logger.info("Connecting to database...")
+
+    conn = psycopg2.connect(DATABASE_URL)
+
+    try:
+        logger.info("Loading customers table...")
+        customer_df = pd.read_sql_query(
+            "SELECT * FROM customer_data_zion",
+            conn
+        )
+
+        logger.info("Loading orders table...")
+        order_df = pd.read_sql_query(
+            "SELECT * FROM order_data_zion",
+            conn
+        )
+
+        logger.success("Data loaded successfully!")
+
+        return customer_df, order_df
+
+    except Exception as e:
+        logger.error(f"Database error: {e}")
+        raise
+
+    finally:
+        conn.close()
+        logger.info("Database connection closed.")
+
 
 def data_analysis(customer_df, orders_df):
 
@@ -14,11 +55,9 @@ def data_analysis(customer_df, orders_df):
     df_orders['order_date'] = pd.to_datetime(df_orders['order_date'])
     df_orders['delivery_date'] = pd.to_datetime(df_orders['delivery_date'])
 
-    # Merge datasets
     logger.info("Merging customer and order datasets...")
     df = pd.merge(df_orders, df_customers, on='customer_id', how='left')
 
-    # Purchase Frequency
     logger.info("Calculating purchase frequency...")
     purchase_frequency = (
         df.groupby('customer_id')
@@ -30,7 +69,6 @@ def data_analysis(customer_df, orders_df):
         .reset_index()
     )
 
-    # Recency (Last purchase)
     logger.info("Calculating recency...")
     latest_date = df['order_date'].max()
 
@@ -46,7 +84,6 @@ def data_analysis(customer_df, orders_df):
 
     recency.drop(columns=['order_date'], inplace=True)
 
-    # Tenure
     logger.info("Calculating tenure...")
     tenure = (
         df.groupby('customer_id')['order_date']
@@ -57,17 +94,13 @@ def data_analysis(customer_df, orders_df):
     tenure['tenure_days'] = (latest_date - tenure['order_date']).dt.days
     tenure.drop(columns=['order_date'], inplace=True)
 
-    # Order status behavior
     logger.info("Analyzing cancellations and failures...")
-
     order_status = (
         df.groupby(['customer_id','order_status'])
         .size()
-        # .unstack(fill_value=0)
         .reset_index()
     )
 
-    # Payment method behavior
     payment_pattern = (
         df.groupby(['customer_id','payment_method'])
         .size()
@@ -75,9 +108,7 @@ def data_analysis(customer_df, orders_df):
         .reset_index()
     )
 
-    # Merge all behavioral metrics
     logger.info("Building customer behavior table...")
-
     analysis_df = (
         purchase_frequency
         .merge(recency, on='customer_id')
@@ -87,7 +118,6 @@ def data_analysis(customer_df, orders_df):
         .merge(df_customers, on='customer_id', how='left')
     )
 
-    # Purchase Frequency Segmentation
     logger.info("Segmenting customers by frequency...")
 
     def frequency_segment(x):
@@ -102,7 +132,6 @@ def data_analysis(customer_df, orders_df):
 
     analysis_df['purchase_segment'] = analysis_df['total_orders'].apply(frequency_segment)
 
-    # Churn Identification
     logger.info("Identifying potential churn customers...")
 
     churn_threshold = 90
@@ -113,7 +142,6 @@ def data_analysis(customer_df, orders_df):
         "Active"
     )
 
-    # Demographic Analysis
     logger.info("Aggregating demographic insights...")
 
     demographic_summary = (
@@ -127,7 +155,6 @@ def data_analysis(customer_df, orders_df):
         .reset_index()
     )
 
-    # Identify possible churn reasons
     logger.info("Detecting churn patterns...")
 
     churn_patterns = analysis_df[
@@ -150,20 +177,17 @@ def data_analysis(customer_df, orders_df):
         "churn_patterns": churn_patterns
     }
 
-# Load data
-order_df = pd.read_csv("synthetic_data2_orders.csv")
-customer_df = pd.read_csv("synthetic_data2_customers.csv")
+# Load data from database
+customer_df, order_df = load_data_from_db()
 
 # Run analysis
 results = data_analysis(customer_df, order_df)
 
-# Extract the results
 customer_behavior = results['customer_behavior']
 demographic_summary = results['demographic_summary']
 churn_patterns = results['churn_patterns']
 
-# Print summaries
-print("Customer Behavior ")
+print("Customer Behavior")
 print(customer_behavior.head(10))
 
 print("Demographic Summary")
