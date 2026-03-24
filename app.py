@@ -1,127 +1,147 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from analysis import load_data_from_db, data_analysis 
+from analysis import load_data_from_db, data_analysis
 
 st.set_page_config(
     page_title="Customer Analytics Dashboard",
     layout="wide"
 )
 
-st.title("Customer Analytics Dashboard")
-
-# Load data
 @st.cache_data
-def load_analysis():
+def load_data():
     customer_df, order_df = load_data_from_db()
     results = data_analysis(customer_df, order_df)
-    return results
+    return results 
 
-results = load_analysis()
+results = load_data()
 
 customer_behavior = results["customer_behavior"]
 demographic_summary = results["demographic_summary"]
 churn_patterns = results["churn_patterns"]
 
-# KPI Metrics
-st.subheader("Key Metrics")
+st.sidebar.header("Filters")
+
+segment_filter = st.sidebar.multiselect(
+    "Purchase Segment",
+    options=customer_behavior["purchase_segment"].unique(),
+    default=customer_behavior["purchase_segment"].unique()
+)
+
+state_filter = st.sidebar.multiselect(
+    "State",
+    options=customer_behavior["state"].dropna().unique(),
+    default=customer_behavior["state"].dropna().unique()
+)
+
+date_filter = st.sidebar.multiselect("Date",
+    options = customer_behavior['last_purchase_date'].dropna().unique(),
+    default = customer_behavior['last_purchase_date'].dropna().unique()
+)
+
+filtered_df = customer_behavior[
+    (customer_behavior["purchase_segment"].isin(segment_filter)) &
+    (customer_behavior["state"].isin(state_filter)) &
+    (customer_behavior['last_purchase_date'].isin(date_filter))
+]
+
+st.title("📊 Customer Analytics Dashboard")
+
+st.subheader("📌 Key Metrics")
 
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric(
-    "Total Customers",
-    customer_behavior["customer_id"].nunique()
-)
+col1.metric("Total Customers", filtered_df["customer_id"].nunique())
+col2.metric("Total Revenue", f"${filtered_df['total_spent'].sum():,.0f}")
+col3.metric("Avg Order Value", f"${filtered_df['avg_order_value'].mean():,.0f}")
+col4.metric("Churn Rate",
+            f"{(filtered_df['churn_risk'] == 'High Risk').mean() * 100:.2f}%")
 
-col2.metric(
-    "Total Revenue",
-    f"${customer_behavior['total_spent'].sum():,.0f}"
-)
-
-col3.metric(
-    "Avg Order Value",
-    f"${customer_behavior['avg_order_value'].mean():.2f}"
-)
-
-col4.metric(
-    "High Risk Customers",
-    churn_patterns["customer_id"].nunique()
-)
-
-# Customer Purchase Segments
-st.subheader("Customer Purchase Segments")
+st.subheader("👥 Customer Segmentation")
 
 segment_chart = (
-    customer_behavior["purchase_segment"]
+    filtered_df["purchase_segment"]
     .value_counts()
     .reset_index()
 )
 
-segment_chart.columns = ["purchase_segment", "count"]
-
-fig = px.pie(
+fig_segment = px.pie(
     segment_chart,
     names="purchase_segment",
     values="count",
-    title="Customer Segmentation"
+    title="Customer Segments Distribution",
+    hole=0.4
 )
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig_segment, use_container_width=True)
 
-# Revenue by Segment
-st.subheader("Revenue by Customer Segment")
+st.subheader("💰 Revenue by Segment")
 
-segment_revenue = (
-    customer_behavior
-    .groupby("purchase_segment")["total_spent"]
+revenue_chart = (
+    filtered_df.groupby("purchase_segment")["total_spent"]
     .sum()
     .reset_index()
 )
 
-fig2 = px.bar(
-    segment_revenue,
+fig_revenue = px.bar(
+    revenue_chart,
     x="purchase_segment",
     y="total_spent",
     color="purchase_segment",
     title="Revenue Contribution by Segment"
 )
 
-st.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig_revenue, use_container_width=True)
 
-# Churn Risk Distribution
-st.subheader("Churn Risk Distribution")
+st.subheader("⚠️ Churn Analysis")
 
 churn_chart = (
-    customer_behavior["churn_risk"]
+    filtered_df["churn_risk"]
     .value_counts()
     .reset_index()
 )
 
-churn_chart.columns = ["churn_risk", "count"]
-
-fig3 = px.bar(
+fig_churn = px.pie(
     churn_chart,
-    x="churn_risk",
-    y="count",
-    color="churn_risk",
-    title="Churn Risk Distribution"
+    names="churn_risk",
+    values="count",
+    title="Churn Distribution",
+    color_discrete_sequence=["green", "red"]
 )
 
-st.plotly_chart(fig3, use_container_width=True)
+st.plotly_chart(fig_churn, use_container_width=True)
 
-# Demographic Insights
-st.subheader("Demographic Insights")
+st.write("### High Risk Customers")
+st.dataframe(churn_patterns.head(20), use_container_width=True)
 
-fig4 = px.sunburst(
+st.subheader("🌍 Demographic Insights")
+
+fig_demo = px.bar(
     demographic_summary,
-    path=["state", "gender", "purchase_segment"],
-    values="customers",
-    title="Customer Demographics"
+    x="state",
+    y="customers",
+    color="purchase_segment",
+    barmode="group",
+    title="Customers by State & Segment"
 )
 
-st.plotly_chart(fig4, use_container_width=True)
+st.plotly_chart(fig_demo, use_container_width=True)
 
-# High Risk Customers Table
-st.subheader("High Risk Customers")
+st.subheader("📈 Customer Behavior (Recency vs Spend)")
 
-st.dataframe(churn_patterns)
+fig_scatter = px.scatter(
+    filtered_df,
+    x="days_since_last_purchase",
+    y="total_spent",
+    color="purchase_segment",
+    size="total_orders",
+    hover_data=["customer_id"],
+    title="Recency vs Spending Behavior"
+)
+
+st.plotly_chart(fig_scatter, use_container_width=True)
+
+st.subheader("📄 Data Explorer")
+
+st.dataframe(filtered_df, use_container_width=True)
+
